@@ -40,6 +40,7 @@
 #include "MK64F12.h"
 #include "fsl_debug_console.h"
 #include "FreeRTOS.h"
+#include "MEM24LC256.h"
 /* TODO: insert other include files here. */
 
 /* TODO: insert other definitions and declarations here. */
@@ -56,7 +57,8 @@ int main(void) {
     BOARD_InitBootPeripherals();
   	/* Init FSL debug console. */
     BOARD_InitDebugConsole();
-
+    uint8_t pepe[] = "hola";
+    String_size(pepe);
 
     return 0 ;
 }

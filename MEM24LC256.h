@@ -10,8 +10,6 @@
 
 #include "I2C_driver.h"
 
-#define MEM24LC256_GENERAL_ADDRESS 0X50 // General slave address with chip select bits on ground.
-
 
 /********************************************************************************************/
 /********************************************************************************************/
@@ -35,5 +33,6 @@ uint8_t MEM24LC256_write_Data(uint16_t address, uint8_t* buffer);
     \return the data from the memory address we give as a param.
  */
 uint8_t* MEM24LC256_Read_Data(uint16_t address, uint8_t bytes, uint8_t* data);
+uint32_t String_size(uint8_t* data);
 
 #endif /* 24LC256_H_ */

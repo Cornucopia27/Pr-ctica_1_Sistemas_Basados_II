@@ -9,18 +9,24 @@
 #include "FreeRTOS.h"
 
 
-i2c_master_handle_t mem_transfer_handle; //handle created for the callback
-
 uint8_t MEM24LC256_write_Data(uint16_t address, uint8_t* buffer)
 {
-    masterXfer.slaveAddress = MEM24LC256_GENERAL_ADDRESS;
-    masterXfer.direction = kI2C_Write;
-    masterXfer.subaddressSize = 2;
-    masterXfer.subaddress = address;
-    masterXfer.data = &buffer;
-    masterXfer.dataSize = 1;
-    masterXfer.flags = kI2C_TransferDefaultFlag;
+    I2C_write_Data(address, buffer);
+    return 0;
+}
 
-    I2C_MasterTransferNonBlocking(I2C0, &g_i2cHandle, &masterXfer);
-//    while((MASTER_XFER_SUCCEDED))
+uint8_t* MEM24LC256_Read_Data(uint16_t address,uint8_t bytes, uint8_t* data)
+{
+    ;
+//    return I2C_read_Data(address, data);
+}
+
+uint32_t String_size(uint8_t* data)
+{
+    uint32_t letter_counter = 0;
+    while(data[letter_counter] != '\0')
+    {
+        letter_counter ++;
+    }
+    return letter_counter;
 }
