@@ -40,6 +40,7 @@
 #include "MK64F12.h"
 #include "fsl_debug_console.h"
 #include "FreeRTOS.h"
+#include "I2C_driver.h"
 #include "MEM24LC256.h"
 /* TODO: insert other include files here. */
 
@@ -57,8 +58,15 @@ int main(void) {
     BOARD_InitBootPeripherals();
   	/* Init FSL debug console. */
     BOARD_InitDebugConsole();
-    uint8_t pepe[] = "hola";
+    uint8_t pepe[] = "Pepe is the dream";
+    uint8_t* pepe_mem = &pepe[0];
+    uint8_t save_pepe[17];
+    uint8_t* pepe_mem2 = &save_pepe[0];
     String_size(pepe);
+    I2C_common_init();
+    MEM24LC256_write_Data(0x00, 17, pepe_mem);
+    MEM24LC256_Read_Data(0x00, String_size(pepe), pepe_mem2);
+
 
     return 0 ;
 }

@@ -9,7 +9,7 @@
 #define MEM24LC256_H_
 
 #include "I2C_driver.h"
-
+#define MEM24LC256_GENERAL_ADDRESS 0X50 // General slave address with chip select bits on ground.
 
 /********************************************************************************************/
 /********************************************************************************************/
@@ -21,7 +21,7 @@
     \param[in]  uint8 (HEX) data that is gonna be stored in the data address we get from the param.
     \return void
  */
-uint8_t MEM24LC256_write_Data(uint16_t address, uint8_t* buffer);
+uint8_t MEM24LC256_write_Data(uint16_t address, uint16_t data_size, uint8_t* buffer);
 /********************************************************************************************/
 /********************************************************************************************/
 /********************************************************************************************/
@@ -32,7 +32,7 @@ uint8_t MEM24LC256_write_Data(uint16_t address, uint8_t* buffer);
     \param[in]  uint16 address where we get the data from (gets separated into high and low).
     \return the data from the memory address we give as a param.
  */
-uint8_t* MEM24LC256_Read_Data(uint16_t address, uint8_t bytes, uint8_t* data);
-uint32_t String_size(uint8_t* data);
+uint8_t* MEM24LC256_Read_Data(uint16_t address, uint16_t data_size, uint8_t* buffer);
+uint16_t String_size(uint8_t* data);
 
 #endif /* 24LC256_H_ */

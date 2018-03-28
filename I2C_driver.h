@@ -19,9 +19,7 @@
 #include "fsl_port.h"
 #include "FreeRTOS.h"
 
-#define MEM24LC256_GENERAL_ADDRESS 0X50 // General slave address with chip select bits on ground.
-
 void I2C_common_init();
-uint8_t I2C_write_Data(uint16_t address, uint8_t* buffer);
-uint8_t I2C_read_Data(uint16_t address, uint8_t* buffer);
+uint8_t I2C_write_Data(uint16_t slave_address, uint16_t address, uint16_t data_size, uint8_t* buffer);
+uint8_t I2C_read_Data(uint16_t slave_address, uint16_t address, uint16_t data_size, uint8_t* buffer);
 #endif /* I2C_DRIVER_H_ */

@@ -9,21 +9,21 @@
 #include "FreeRTOS.h"
 
 
-uint8_t MEM24LC256_write_Data(uint16_t address, uint8_t* buffer)
+uint8_t MEM24LC256_write_Data(uint16_t address, uint16_t data_size, uint8_t* buffer)
 {
-    I2C_write_Data(address, buffer);
+    I2C_write_Data(MEM24LC256_GENERAL_ADDRESS,address,data_size, buffer);
     return 0;
 }
 
-uint8_t* MEM24LC256_Read_Data(uint16_t address,uint8_t bytes, uint8_t* data)
+uint8_t* MEM24LC256_Read_Data(uint16_t address, uint16_t data_size, uint8_t* buffer)
 {
-    ;
-//    return I2C_read_Data(address, data);
+
+   return I2C_read_Data(MEM24LC256_GENERAL_ADDRESS,address,data_size, buffer);
 }
 
-uint32_t String_size(uint8_t* data)
+uint16_t String_size(uint8_t* data)
 {
-    uint32_t letter_counter = 0;
+    uint16_t letter_counter = 0;
     while(data[letter_counter] != '\0')
     {
         letter_counter ++;
