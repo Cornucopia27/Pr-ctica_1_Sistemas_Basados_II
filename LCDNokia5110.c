@@ -5,13 +5,11 @@
  *      Author: Luis
  */
 
-#include "GPIO.h"
-#include "SPI.h"
 #include "LCDNokia5110.h"
 
 
 
-static const uint8 ASCII[][5] =
+static const uint8_t ASCII[][5] =
 {
  {0x00, 0x00, 0x00, 0x00, 0x00} // 20  
 ,{0x00, 0x00, 0x5f, 0x00, 0x00} // 21 !
@@ -113,21 +111,35 @@ static const uint8 ASCII[][5] =
 
 
 void LCDNokia_init(void) {
-	GPIO_pinControlRegisterType pinControlRegister = GPIO_MUX1;
+//	GPIO_pinControlRegisterType pinControlRegister = GPIO_MUX1;
 
-	GPIO_clockGating(GPIO_D);
-	GPIO_dataDirectionPIN(GPIO_D,GPIO_OUTPUT,DATA_OR_CMD_PIN);
-	GPIO_pinControlRegister(GPIO_D,BIT3,&pinControlRegister);
+    CLOCK_EnableClock( kCLOCK_PortD );
+//	GPIO_clockGating(GPIO_D);
+    //gpio pins configuration
+    gpio_pin_config_t lcd_pins = {kGPIO_DigitalOutput, 0};
+    port_pin_config_t config_lcd = { kPORT_PullDisable, kPORT_SlowSlewRate,
+        kPORT_PassiveFilterDisable, kPORT_OpenDrainDisable,
+        kPORT_LowDriveStrength, kPORT_MuxAsGpio, kPORT_UnlockRegister, };
+
+    GPIO_PinInit( GPIOD , DATA_OR_CMD_PIN, &lcd_pins);
+    GPIO_PinInit( GPIOD , RESET_PIN, &lcd_pins);
+
+    PORT_SetPinConfig(PORTD, DATA_OR_CMD_PIN, &config_lcd);
+    PORT_SetPinConfig(PORTD, RESET_PIN, &config_lcd);
+//	GPIO_dataDirectionPIN(GPIO_D,GPIO_OUTPUT,DATA_OR_CMD_PIN);
+//	GPIO_pinControlRegister(GPIO_D,BIT3,&pinControlRegister);
 	
-	GPIO_clockGating(GPIO_D);
-	GPIO_dataDirectionPIN(GPIO_D,GPIO_OUTPUT,RESET_PIN);
-	GPIO_pinControlRegister(GPIO_D,RESET_PIN,&pinControlRegister);
+//	GPIO_clockGating(GPIO_D);
+//	GPIO_dataDirectionPIN(GPIO_D,GPIO_OUTPUT,RESET_PIN);
+//	GPIO_pinControlRegister(GPIO_D,RESET_PIN,&pinControlRegister);
   //Configure control pins
 	
 
-	GPIO_clearPIN(GPIO_D, RESET_PIN);
+    GPIO_ClearPinsOutput(GPIOD, RESET_PIN);
+//	GPIO_clearPIN(GPIO_D, RESET_PIN);
 	LCD_delay();
-	GPIO_setPIN(GPIO_D, RESET_PIN);
+	GPIO_SetPinsOutput(GPIOD, RESET_PIN);
+//	GPIO_setPIN(GPIO_D, RESET_PIN);
 	LCDNokia_writeByte(LCD_CMD, 0x21); //Tell LCD that extended commands follow
 	LCDNokia_writeByte(LCD_CMD, 0xBF); //Set LCD Vop (Contrast): Try 0xB1(good @ 3.3V) or 0xBF if your display is too dark
 	LCDNokia_writeByte(LCD_CMD, 0x04); //Set Temp coefficent
@@ -137,28 +149,30 @@ void LCDNokia_init(void) {
 	LCDNokia_writeByte(LCD_CMD, 0x0C); //Set display control, normal mode. 0x0D for inverse
 }
 
-void LCDNokia_bitmap(const uint8* my_array){
-	uint16 index=0;
+void LCDNokia_bitmap(const uint8_t* my_array){
+	uint16_t index=0;
   for (index = 0 ; index < (LCD_X * LCD_Y / 8) ; index++)
 	  LCDNokia_writeByte(LCD_DATA, *(my_array+index));
 }
 
 
 
-void LCDNokia_writeByte(uint8 DataOrCmd, uint8 data)
+void LCDNokia_writeByte(uint8_t DataOrCmd, uint8_t data)
 {
 	if(DataOrCmd)
-		GPIO_setPIN(GPIO_D, DATA_OR_CMD_PIN);
+	    GPIO_SetPinsOutput(GPIOD, DATA_OR_CMD_PIN);
+//		GPIO_setPIN(GPIO_D, DATA_OR_CMD_PIN);
 	else
-		GPIO_clearPIN(GPIO_D, DATA_OR_CMD_PIN);
+	    GPIO_ClearPinsOutput(GPIOD, DATA_OR_CMD_PIN);
+//		GPIO_clearPIN(GPIO_D, DATA_OR_CMD_PIN);
 	
-	SPI_startTranference(SPI_0);
+//	SPI_startTranference(SPI_0);
 	SPI_sendOneByte(SPI_0,data);
-	SPI_stopTranference(SPI_0);
+//	SPI_stopTranference(SPI_0);
 }
 
-void LCDNokia_sendChar(uint8 character) {
-  uint16 index = 0; 
+void LCDNokia_sendChar(uint8_t character) {
+  uint16_t index = 0;
 	
   LCDNokia_writeByte(LCD_DATA, 0x00); //Blank vertical line padding
 
@@ -169,19 +183,19 @@ void LCDNokia_sendChar(uint8 character) {
   LCDNokia_writeByte(LCD_DATA, 0x00); //Blank vertical line padding
 }
 
-void LCDNokia_sendString(uint8 *characters) {
+void LCDNokia_sendString(uint8_t *characters) {
   while (*characters)
 	  LCDNokia_sendChar(*characters++);
 }
 
 void LCDNokia_clear(void) {
-	uint16 index = 0;
+	uint16_t index = 0;
   for (index = 0 ; index < (LCD_X * LCD_Y / 8) ; index++)
 	  LCDNokia_writeByte(LCD_DATA, 0x00);
   LCDNokia_gotoXY(0, 0); //After we clear the display, return to the home position
 }
 
-void LCDNokia_gotoXY(uint8 x, uint8 y) {
+void LCDNokia_gotoXY(uint8_t x, uint8_t y) {
 	LCDNokia_writeByte(LCD_CMD, 0x80 | x);  // Column.
 	LCDNokia_writeByte(LCD_CMD, 0x40 | y);  // Row.  ?
 }
