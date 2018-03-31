@@ -1,265 +1,136 @@
-/* FreeRTOS kernel includes. */
-#include "FreeRTOS.h"
-#include "task.h"
-#include "queue.h"
-#include "timers.h"
+/*
+ * UART.c
+ *
+ *  Created on: March 21th, 2018
+ *      Authors: Adrian Ramos Perez and Alex Avila Chavira
+ */
 
-/* Freescale includes. */
-#include "fsl_device_registers.h"
-#include "fsl_debug_console.h"
+#include <stdio.h>
 #include "board.h"
-
-#include "fsl_uart_freertos.h"
-#include "fsl_uart.h"
-
+#include "peripherals.h"
 #include "pin_mux.h"
 #include "clock_config.h"
-/*******************************************************************************
- * Definitions
- ******************************************************************************/
-/* UART instance and clock */
-#define DEMO_UART UART0
-#define DEMO_UART_4 UART4
+#include "MK64F12.h"
+#include "fsl_debug_console.h"
+#include "fsl_uart.h"
+#include "fsl_port.h"
 
-#define DEMO_UART_CLKSRC UART0_CLK_SRC
-#define DEMO_UART4_CLKSRC UART4_CLK_SRC
+#include "FreeRTOS.h"
+#include "FreeRTOSConfig.h"
+#include "task.h"
 
-#define DEMO_UART_RX_TX_IRQn UART0_RX_TX_IRQn
-#define DEMO_UART4_RX_TX_IRQn UART4_RX_TX_IRQn
-
-/* Task priorities. */
-#define uart_task_PRIORITY (configMAX_PRIORITIES - 1)
-/*******************************************************************************
- * Prototypes
- ******************************************************************************/
-static void uart_task(void *pvParameters);
-static void uart4_task(void *pvParameters);
-
-#define DEMO_RING_BUFFER_SIZE 16
-#define DEMO_RING_BUFFER_SIZE_UART4 16
-
-uint8_t demoRingBuffer[DEMO_RING_BUFFER_SIZE];
-volatile uint16_t txIndex; /* Index of the data to send out. */
-volatile uint16_t rxIndex; /* Index of the memory to save new arrived data. */
-
-uint8_t demoRingBuffer_UART4[DEMO_RING_BUFFER_SIZE_UART4];
-volatile uint16_t txIndex_UART4; /* Index of the data to send out. */
-volatile uint16_t rxIndex_UART4; /* Index of the memory to save new arrived data. */
-/*******************************************************************************
- * Variables
- ******************************************************************************/
-const char *to_send = "teraterm\r\n";
-const char *to_send4 = "blueterm\r\n";
-const char *send_ring_overrun = "\r\nRing buffer overrun!\r\n";
-const char *send_hardware_overrun = "\r\nHardware buffer overrun!\r\n";
-
-uint8_t background_buffer_uart4[32];
-uint8_t recv_buffer_uart4[4];
-
-
+/*** VARIABLES *********************************************************************/
+const char *teratermtxt = "Esta es la terminal del PC\r\n";
+uint8_t sendData[] = {"Probando"};
 uint8_t background_buffer[32];
 uint8_t recv_buffer[1];
+uart_handle_t g_uartHandle;
+uart_handle_t handle;
+uart_handle_t handle_uart4;
+uart_transfer_t sendXfer;
+uart_transfer_t receiveXfer;
+volatile bool txFinished;
+volatile bool rxFinished;
 
-uart_rtos_handle_t handle;
-struct _uart_handle t_handle;
+uint8_t
 
-uart_rtos_handle_t handle_uart4;
-struct _uart_handle t_handle_uart4;
-
-
-uart_rtos_config_t uart_config = {
-
-    .baudrate = 115200,
-    .parity = kUART_ParityDisabled,
-    .stopbits = kUART_OneStopBit,
-    .buffer = background_buffer,
-    .buffer_size = sizeof(background_buffer),
+/* ESTRUCTURA DE CONFIGURACIÓN PARA LA UART 0*/
+uart_config_t config_uart0 = {
+	.baudRate_Bps = 115200,
+	.parityMode = kUART_ParityDisabled,
+	.stopBitCount = kUART_OneStopBit,
+	.enableTx = true,
+	.enableRx = true,
 };
 
-uart_rtos_config_t uart4_config = {
-    .baudrate = 9600,
-    .parity = kUART_ParityDisabled,
-    .stopbits = kUART_OneStopBit,
-    .buffer = background_buffer_uart4,
-    .buffer_size = sizeof(background_buffer_uart4),
+/* ESTRUCTURA DE CONFIGURACIÓN PARA LA UART 4*/
+uart_config_t config_uart4 =
+{
+	.baudRate_Bps = 9600,
+	.parityMode = kUART_ParityDisabled,
+	.stopBitCount = kUART_OneStopBit,
+	.enableTx = true,
+	.enableRx = true,
 };
+/********************************************************************************/
 
-/*******************************************************************************
- * Code
- ******************************************************************************/
-/*!
- * @brief Application entry point.
- */
-int main(void)
+/* Basado en el ejemplo 'UART Send/receive using an interrupt method' de NXP: https://mcuxpresso.nxp.com/apidoc/2.0/group__uart__driver.html#ga2868b6ea396ab212547f2157380429c5 */
+void uart_callback(UART_Type *base, uart_handle_t uart_handle, status_t status, void *userData)
 {
-    /* Init board hardware. */
-    BOARD_InitPins();                           //we need to configure the uart 4
-    BOARD_BootClockRUN();
-    NVIC_SetPriority(DEMO_UART_RX_TX_IRQn, 5);
-    NVIC_SetPriority(DEMO_UART4_RX_TX_IRQn, 5);
-
-
-    uart_config.srcclk = CLOCK_GetFreq(DEMO_UART_CLKSRC);
-    uart_config.base = DEMO_UART;
-
-    uart4_config.srcclk = CLOCK_GetFreq(DEMO_UART4_CLKSRC);
-   	uart4_config.base = DEMO_UART_4;
-
-
-
-    xTaskCreate(uart_task, "Uart_task", configMINIMAL_STACK_SIZE, NULL, uart_task_PRIORITY, NULL);
-    xTaskCreate(uart4_task, "Uart4_task", configMINIMAL_STACK_SIZE, NULL, uart_task_PRIORITY, NULL);
-
-    vTaskStartScheduler();
-    for (;;)
-        ;
+	userData = userData;
+	BaseType_t xHigherPriorityTaskWoken;
+	if (kStatus_UART_TxIdle == status)
+	{
+		//xEventGroupGetBitsFromISR(g_uart_event, TX_FINISHED, &xHigherPriorityTaskWoken);
+		txFinished = true;
+	}
+	if (kStatus_UART_RxIdle == status)
+	{
+		rxFinished = true;
+	}
 }
 
-/*!
- * @brief Task responsible for printing of "Hello world." message.
- */
-void DEMO_UART_IRQHandler(void)
+
+void uart_Init() 	// Función para inicializar(configurar) las UARTs 0 y 4
 {
-    uint8_t data;
+	CLOCK_EnableClock(kCLOCK_PortB);			/* Habilitar reloj del puerto B */
+	PORT_SetPinMux(PORTB, 16, kPORT_MuxAlt3);
+	PORT_SetPinMux(PORTB, 17, kPORT_MuxAlt3);
 
-    /* If new data arrived. */
-    if ((kUART_RxDataRegFullFlag | kUART_RxOverrunFlag) & UART_GetStatusFlags(DEMO_UART))
-    {
-        data = UART_ReadByte(DEMO_UART);
+	/*UART_GetDefaultConfig(&config);
+	config.baudRate_Bps = 115200;
+	config.enableTx = true;
+	config.enableRx = true;*/
 
-        /* If ring buffer is not full, add data to ring buffer. */
-        if (((rxIndex + 1) % DEMO_RING_BUFFER_SIZE) != txIndex)
-        {
-            demoRingBuffer[rxIndex] = data;
-            rxIndex++;
-            rxIndex %= DEMO_RING_BUFFER_SIZE;
-            UART_WriteByte(DEMO_UART_4, demoRingBuffer[txIndex]);
-        }
-    }
+	UART_Init(UART0, &config_uart0, CLOCK_GetFreq(UART0_CLK_SRC));	// Inicialización de los parámetros de UART0
+	UART_Init(UART4, &config_uart4, CLOCK_GetFreq(UART4_CLK_SRC));  // Inicialización de los parámetros de UART4
+
+	UART_TransferCreateHandle(UART0, &g_uartHandle, uart_callback, NULL);
+	NVIC_SetPriority(UART0_RX_TX_IRQn,5);
+	NVIC_SetPriority(UART4_RX_TX_IRQn,5);
+
+		sendXfer.data = &g_txBuffer;
+		sendXfer.dataSize = 1;
+		receiveXfer.data = &g_rxBuffer;
+		receiveXfer.dataSize = 1;
+
+
+		UART_TransferReceiveNonBlocking(UART0, &g_uartHandle, &receiveXfer, &receivedB);
+		xEventGroupWaitBits(g_uart_evet, RX_FINISHED, pdTRUE, pdTRUE, port_MAXDELAY);
+		g_txBuffer = g_rxBuffer - 'a' + 'A';
+		UART_TransferSendNonBlocking(UART0, &g_uartHandle, &sendXfer);
+
 }
 
-void DEMO_UART4_IQRHandler(void)
-{
-	uint8_t data_UART4;
-
-	        uart_config.srcclk = CLOCK_GetFreq(DEMO_UART4_CLKSRC);
-		    uart_config.base = DEMO_UART;
-	    /* If new data arrived. */
-	    if ((kUART_RxDataRegFullFlag | kUART_RxOverrunFlag) & UART_GetStatusFlags(DEMO_UART_4))
-	    {
-	        data_UART4 = UART_ReadByte(DEMO_UART_4);
-
-	        /* If ring buffer is not full, add data to ring buffer. */
-	        if (((rxIndex_UART4 + 1) % DEMO_RING_BUFFER_SIZE_UART4) != txIndex_UART4)
-	        {
-	            demoRingBuffer_UART4[rxIndex_UART4 ] = data_UART4 ;
-	            rxIndex_UART4++;
-	            rxIndex_UART4 %= DEMO_RING_BUFFER_SIZE_UART4;
-	            UART_WriteByte(DEMO_UART, demoRingBuffer[txIndex_UART4]);
-	        }
-	    }
-}
-
-static void uart4_task(void *pvParameter)
+void PC_Terminal_Task(void *pvParameters)
 {
 
-	    int error_uart4;
-	    size_t n_uart4;
-	   // I define the base and srcclk on the top (inside uart rtos config)
-
-
-	    if (0 > UART_RTOS_Init(&handle_uart4, &t_handle_uart4, &uart4_config))
-	    {
-	        vTaskSuspend(NULL);
-	    }
-
-	    /* Send some data */
-	    if (0 > UART_RTOS_Send(&handle_uart4, (uint8_t *)to_send4, strlen(to_send)))
-	    {
-	        vTaskSuspend(NULL);
-	    }
-
-	    /* Send data */
-	    do
-	    {
-	        error_uart4 = UART_RTOS_Receive(&handle_uart4, recv_buffer_uart4, sizeof(recv_buffer_uart4), &n_uart4);
-	        if (error_uart4 == kStatus_UART_RxHardwareOverrun)
-	        {
-	            /* Notify about hardware buffer overrun */
-	            if (kStatus_Success !=
-	                UART_RTOS_Send(&handle_uart4, (uint8_t *)send_hardware_overrun, strlen(send_hardware_overrun)))
-	            {
-	                vTaskSuspend(NULL);
-	            }
-	        }
-	        if (error_uart4 == kStatus_UART_RxRingBufferOverrun)
-	        {
-	            /* Notify about ring buffer overrun */
-	            if (kStatus_Success != UART_RTOS_Send(&handle_uart4, (uint8_t *)send_ring_overrun, strlen(send_ring_overrun)))
-	            {
-	                vTaskSuspend(NULL);
-	            }
-	        }
-	        if (n_uart4 > 0)
-	        {
-	            /* send back the received data */
-	            UART_RTOS_Send(&handle_uart4, (uint8_t *)recv_buffer_uart4, n_uart4);
-	        }
-	        vTaskDelay(1000);
-	    } while (kStatus_Success == error_uart4);
-
-	    UART_RTOS_Deinit(&handle_uart4);
-
-	    vTaskDelay(1000);
-}
-
-static void uart_task(void *pvParameters)
-{
-    int error;
-    size_t n;
-   // I define the base and srcclk on the top (inside uart rtos config)
-
-    if (0 > UART_RTOS_Init(&handle, &t_handle, &uart_config))
+    /* Enviar el menú de opciones a escoger */
+    /*if (0 > UART_RTOS_Send(&handle, (uint8_t *)teratermtxt, strlen(teratermtxt)))
     {
         vTaskSuspend(NULL);
-    }
-
-    /* Send some data */
-    if (0 > UART_RTOS_Send(&handle, (uint8_t *)to_send, strlen(to_send)))
-    {
-        vTaskSuspend(NULL);
-    }
+    }*/
+    UART_TransferSendNonBlocking(UART0, &g_uartHandle, &sendXfer);
 
     /* Send data */
-    do
+    for(;;)
     {
-        error = UART_RTOS_Receive(&handle, recv_buffer, sizeof(recv_buffer), &n);
-        if (error == kStatus_UART_RxHardwareOverrun)
-        {
-            /* Notify about hardware buffer overrun */
-            if (kStatus_Success !=
-                UART_RTOS_Send(&handle, (uint8_t *)send_hardware_overrun, strlen(send_hardware_overrun)))
-            {
-                vTaskSuspend(NULL);
-            }
-        }
-        if (error == kStatus_UART_RxRingBufferOverrun)
-        {
-            /* Notify about ring buffer overrun */
-            if (kStatus_Success != UART_RTOS_Send(&handle, (uint8_t *)send_ring_overrun, strlen(send_ring_overrun)))
-            {
-                vTaskSuspend(NULL);
-            }
-        }
-        if (n > 0)
-        {
-            /* send back the received data */
-            UART_RTOS_Send(&handle, (uint8_t *)recv_buffer, n);
-        }
-        vTaskDelay(1000);
-    } while (kStatus_Success == error);
+        /* send back the received data */
+    	//UART_RTOS_Receive(&handle, recv_buffer, sizeof(recv_buffer), &n);
+    	//receiveXfer.data = ;
+    	//receiveXfer.dataSize = ;
+    	UART_TransferReceiveNonBlocking(UART0, &g_uartHandle, &receiveXfer, NULL);
 
-    UART_RTOS_Deinit(&handle);
+        //UART_RTOS_Send(&handle, (uint8_t *)recv_buffer, n);
+    	sendXfer.data = sendData;
+    	sendXfer.dataSize = sizeof(sendData)/sizeof(sendData[0]);
+        UART_TransferSendNonBlocking(UART0, &g_uartHandle, &sendXfer);
 
-    vTaskDelay(1000);
+        vTaskDelay(100);
+
+	}
+    //UART_RTOS_Deinit(&handle);
+    UART_Deinit(UART0);
+
+    vTaskDelay(100);
 }
