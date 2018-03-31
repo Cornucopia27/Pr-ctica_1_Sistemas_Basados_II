@@ -2,8 +2,7 @@
 #ifndef LCDNOKIA5110IMAGES_H_
 #define LCDNOKIA5110IMAGES_H_
 
-#include "DataTypeDefinitions.h"
-
+#include "MK64F12.h"
 
 
 #endif /* LCDNOKIA5110IMAGES_H_ */

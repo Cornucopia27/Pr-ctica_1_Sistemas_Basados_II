@@ -7,7 +7,9 @@
 
 #include "LCDNokia5110.h"
 
-
+bool g_MasterCompletionFlag = false;
+dspi_master_handle_t g_spiHandle; //handle created for the callback
+dspi_transfer_t masterXfer;
 
 static const uint8_t ASCII[][5] =
 {
@@ -109,37 +111,65 @@ static const uint8_t ASCII[][5] =
 ,{0x78, 0x46, 0x41, 0x46, 0x78} // 7f
 };
 
+static void spi_master_callback( SPI_Type *base, dspi_master_handle_t *handle,
+        status_t status, void * userData )
+{
+    if ( status == kStatus_Success )
+    {
+        g_MasterCompletionFlag = true;
+    }
+}
+
+void delay(uint16_t delay)
+{
+    volatile uint16_t counter;
+
+    for(counter=delay; counter > 0; counter--)
+    {
+    }
+}
+
+void SPI_common_init()
+{
+    CLOCK_EnableClock( kCLOCK_PortD ); //for the SPI0 sck and sout
+    CLOCK_EnableClock( kCLOCK_Spi0 );   //for the SPI0 clock enable
+
+    //spi_0 pins configuration
+    static port_pin_config_t config_spi = { kPORT_PullDisable, kPORT_SlowSlewRate,
+        kPORT_PassiveFilterDisable, kPORT_OpenDrainDisable,
+        kPORT_LowDriveStrength, kPORT_MuxAlt2, kPORT_UnlockRegister, };
+    PORT_SetPinConfig(PORTD, 1, &config_spi);  //SPI0 SCK pin configuration
+    PORT_SetPinConfig(PORTD, 2, &config_spi);  //SPI0 SOUT pin configuration
+
+    static dspi_master_config_t masterConfig;
+    DSPI_MasterGetDefaultConfig( &masterConfig );
+
+    DSPI_MasterInit( SPI0, &masterConfig, CLOCK_GetFreq(DSPI0_CLK_SRC));
+    DSPI_MasterTransferCreateHandle( SPI0 , &g_spiHandle, spi_master_callback, NULL);
+
+    NVIC_EnableIRQ(SPI0_IRQn);
+    NVIC_SetPriority(SPI0_IRQn, 5);
+}
 
 void LCDNokia_init(void) {
-//	GPIO_pinControlRegisterType pinControlRegister = GPIO_MUX1;
 
     CLOCK_EnableClock( kCLOCK_PortD );
-//	GPIO_clockGating(GPIO_D);
     //gpio pins configuration
     gpio_pin_config_t lcd_pins = {kGPIO_DigitalOutput, 0};
     port_pin_config_t config_lcd = { kPORT_PullDisable, kPORT_SlowSlewRate,
         kPORT_PassiveFilterDisable, kPORT_OpenDrainDisable,
-        kPORT_LowDriveStrength, kPORT_MuxAsGpio, kPORT_UnlockRegister, };
+        kPORT_LowDriveStrength, kPORT_MuxAsGpio, kPORT_UnlockRegister };
 
     GPIO_PinInit( GPIOD , DATA_OR_CMD_PIN, &lcd_pins);
     GPIO_PinInit( GPIOD , RESET_PIN, &lcd_pins);
 
     PORT_SetPinConfig(PORTD, DATA_OR_CMD_PIN, &config_lcd);
     PORT_SetPinConfig(PORTD, RESET_PIN, &config_lcd);
-//	GPIO_dataDirectionPIN(GPIO_D,GPIO_OUTPUT,DATA_OR_CMD_PIN);
-//	GPIO_pinControlRegister(GPIO_D,BIT3,&pinControlRegister);
-	
-//	GPIO_clockGating(GPIO_D);
-//	GPIO_dataDirectionPIN(GPIO_D,GPIO_OUTPUT,RESET_PIN);
-//	GPIO_pinControlRegister(GPIO_D,RESET_PIN,&pinControlRegister);
-  //Configure control pins
-	
 
-    GPIO_ClearPinsOutput(GPIOD, RESET_PIN);
-//	GPIO_clearPIN(GPIO_D, RESET_PIN);
+    GPIO_ClearPinsOutput(GPIOD, 1 << RESET_PIN);
 	LCD_delay();
-	GPIO_SetPinsOutput(GPIOD, RESET_PIN);
-//	GPIO_setPIN(GPIO_D, RESET_PIN);
+	GPIO_SetPinsOutput(GPIOD, 1 << RESET_PIN);
+
 	LCDNokia_writeByte(LCD_CMD, 0x21); //Tell LCD that extended commands follow
 	LCDNokia_writeByte(LCD_CMD, 0xBF); //Set LCD Vop (Contrast): Try 0xB1(good @ 3.3V) or 0xBF if your display is too dark
 	LCDNokia_writeByte(LCD_CMD, 0x04); //Set Temp coefficent
@@ -159,16 +189,24 @@ void LCDNokia_bitmap(const uint8_t* my_array){
 
 void LCDNokia_writeByte(uint8_t DataOrCmd, uint8_t data)
 {
+    static dspi_transfer_t masterXfer;
 	if(DataOrCmd)
-	    GPIO_SetPinsOutput(GPIOD, DATA_OR_CMD_PIN);
-//		GPIO_setPIN(GPIO_D, DATA_OR_CMD_PIN);
+	    GPIO_SetPinsOutput(GPIOD, 1 << DATA_OR_CMD_PIN);
 	else
-	    GPIO_ClearPinsOutput(GPIOD, DATA_OR_CMD_PIN);
-//		GPIO_clearPIN(GPIO_D, DATA_OR_CMD_PIN);
+	    GPIO_ClearPinsOutput(GPIOD, 1 << DATA_OR_CMD_PIN);
 	
-//	SPI_startTranference(SPI_0);
-	SPI_sendOneByte(SPI_0,data);
-//	SPI_stopTranference(SPI_0);
+	uint8_t TxData[1];
+	TxData[0] = data;
+    masterXfer.txData = TxData;
+    masterXfer.rxData = NULL;
+    masterXfer.dataSize = sizeof(TxData);
+    masterXfer.configFlags = kDSPI_MasterCtar0 | kDSPI_MasterPcs0 | kDSPI_MasterPcsContinuous;
+
+    DSPI_MasterTransferNonBlocking(SPI0, &g_spiHandle, &masterXfer);
+    while (!g_MasterCompletionFlag)
+        {
+        }
+    g_MasterCompletionFlag = false;
 }
 
 void LCDNokia_sendChar(uint8_t character) {
