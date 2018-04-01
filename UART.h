@@ -29,6 +29,6 @@
 
 
 void uart_Init();
-void uart_callback(UART_Type *base, uart_handle_t uart_handle, status_t status, void *userData);
+
 void PC_Terminal_Task(void *arg);
 
