@@ -12,13 +12,17 @@
 #include "board.h"
 #include "peripherals.h"
 #include "pin_mux.h"
+#include "LCDNokia5110Images.h"
 #include "clock_config.h"
 #include "MK64F12.h"
 #include "fsl_debug_console.h"
 #include "fsl_port.h"
 #include "fsl_dspi.h"
 #include "FreeRTOS.h"
-
+#include "task.h"
+#include "semphr.h"
+#include "event_groups.h"
+#include "queue.h"
 
 #define SCREENW 84
 #define SCREENH 48
@@ -49,6 +53,7 @@ void LCDNokia_sendString(uint8_t*);
 /*It used in the initialisation routine*/
 void LCD_delay(void);
 
+void task_Lcdprint();
 void SPI_common_init();
 void delay(uint16_t delay);
 

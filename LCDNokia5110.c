@@ -7,9 +7,15 @@
 
 #include "LCDNokia5110.h"
 
+#define EVENT_SPI (1<<0)
+
 bool g_MasterCompletionFlag = false;
 dspi_master_handle_t g_spiHandle; //handle created for the callback
 dspi_transfer_t masterXfer;
+SemaphoreHandle_t spi_semaphore;
+EventGroupHandle_t spi_event;
+
+extern const uint8_t ITESO[504];
 
 static const uint8_t ASCII[][5] =
 {
@@ -114,10 +120,12 @@ static const uint8_t ASCII[][5] =
 static void spi_master_callback( SPI_Type *base, dspi_master_handle_t *handle,
         status_t status, void * userData )
 {
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     if ( status == kStatus_Success )
     {
-        g_MasterCompletionFlag = true;
+        xEventGroupSetBitsFromISR(spi_event, EVENT_SPI, &xHigherPriorityTaskWoken);
     }
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 void delay(uint16_t delay)
@@ -147,8 +155,14 @@ void SPI_common_init()
     DSPI_MasterInit( SPI0, &masterConfig, CLOCK_GetFreq(DSPI0_CLK_SRC));
     DSPI_MasterTransferCreateHandle( SPI0 , &g_spiHandle, spi_master_callback, NULL);
 
+    xTaskCreate(task_Lcdprint, "print", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
+
     NVIC_EnableIRQ(SPI0_IRQn);
-    NVIC_SetPriority(SPI0_IRQn, 5);
+    NVIC_SetPriority(SPI0_IRQn, 6);
+
+    spi_semaphore = xSemaphoreCreateMutex();
+    spi_event = xEventGroupCreate();
+
 }
 
 void LCDNokia_init(void) {
@@ -167,7 +181,7 @@ void LCDNokia_init(void) {
     PORT_SetPinConfig(PORTD, RESET_PIN, &config_lcd);
 
     GPIO_ClearPinsOutput(GPIOD, 1 << RESET_PIN);
-	LCD_delay();
+//	vTaskDelay(pdMS_TO_TICKS(80));
 	GPIO_SetPinsOutput(GPIOD, 1 << RESET_PIN);
 
 	LCDNokia_writeByte(LCD_CMD, 0x21); //Tell LCD that extended commands follow
@@ -202,11 +216,15 @@ void LCDNokia_writeByte(uint8_t DataOrCmd, uint8_t data)
     masterXfer.dataSize = sizeof(TxData);
     masterXfer.configFlags = kDSPI_MasterCtar0 | kDSPI_MasterPcs0 | kDSPI_MasterPcsContinuous;
 
+    xSemaphoreTake(spi_semaphore, portMAX_DELAY);
     DSPI_MasterTransferNonBlocking(SPI0, &g_spiHandle, &masterXfer);
-    while (!g_MasterCompletionFlag)
-        {
-        }
-    g_MasterCompletionFlag = false;
+    xSemaphoreGive(spi_semaphore);
+//    while (!g_MasterCompletionFlag)
+//        {
+//        }
+//    g_MasterCompletionFlag = false;
+    xEventGroupWaitBits(spi_event, EVENT_SPI, pdTRUE, pdTRUE, portMAX_DELAY);
+    DSPI_StopTransfer( SPI0 );
 }
 
 void LCDNokia_sendChar(uint8_t character) {
@@ -248,3 +266,29 @@ void LCD_delay(void)
 	}
 }
 
+void task_Lcdprint()
+{
+    uint8_t string1[]="ITESO"; /*! String to be printed in the LCD*/
+    uint8_t string2[]="uMs y DSPs"; /*! String to be printed in the LCD*/
+    for(;;) {
+        LCDNokia_clear();/*! It clears the information printed in the LCD*/
+        LCDNokia_bitmap(&ITESO[0]); /*! It prints an array that hold an image, in this case is the initial picture*/
+        delay(65000);
+        LCDNokia_clear();
+        delay(65000);
+        LCDNokia_clear();
+        LCDNokia_gotoXY(25,0); /*! It establishes the position to print the messages in the LCD*/
+        LCDNokia_sendString(string1); /*! It print a string stored in an array*/
+        delay(65000);
+        LCDNokia_gotoXY(10,1);
+        LCDNokia_sendString(string2); /*! It print a string stored in an array*/
+        delay(65000);
+        LCDNokia_gotoXY(25,2);
+        LCDNokia_sendChar('2'); /*! It prints a character*/
+        LCDNokia_sendChar('0'); /*! It prints a character*/
+        LCDNokia_sendChar('1'); /*! It prints a character*/
+        LCDNokia_sendChar('5'); /*! It prints a character*/
+        delay(65000);
+        delay(130000);
+    }
+}
