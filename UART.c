@@ -5,6 +5,7 @@
  *      Authors: Adrian Ramos Perez and Alex Avila Chavira
  */
 
+#include "UART.h"
 #include <stdio.h>
 #include "board.h"
 #include "peripherals.h"
@@ -18,6 +19,14 @@
 #include "FreeRTOS.h"
 #include "FreeRTOSConfig.h"
 #include "task.h"
+#include "event_groups.h"
+#include "portmacro.h"
+
+#define TX_FINISHED		1>>0
+#define RX_FINISHED		1<<1
+
+
+EventGroupHandle_t g_uart_event;
 
 /*** VARIABLES *********************************************************************/
 const char *teratermtxt = "Esta es la terminal del PC\r\n";
@@ -31,8 +40,10 @@ uart_transfer_t sendXfer;
 uart_transfer_t receiveXfer;
 volatile bool txFinished;
 volatile bool rxFinished;
+uint8_t receiveData[32];
+uint8_t g_txBuffer;
+uint8_t g_rxBuffer;
 
-uint8_t
 
 /* ESTRUCTURA DE CONFIGURACIÓN PARA LA UART 0*/
 uart_config_t config_uart0 = {
@@ -61,18 +72,23 @@ void uart_callback(UART_Type *base, uart_handle_t uart_handle, status_t status, 
 	BaseType_t xHigherPriorityTaskWoken;
 	if (kStatus_UART_TxIdle == status)
 	{
-		//xEventGroupGetBitsFromISR(g_uart_event, TX_FINISHED, &xHigherPriorityTaskWoken);
+		xEventGroupSetBitsFromISR(g_uart_event, TX_FINISHED, &xHigherPriorityTaskWoken);
 		txFinished = true;
 	}
 	if (kStatus_UART_RxIdle == status)
 	{
+		xEventGroupSetBitsFromISR(g_uart_event, RX_FINISHED, &xHigherPriorityTaskWoken);
 		rxFinished = true;
 	}
+	portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 
 void uart_Init() 	// Función para inicializar(configurar) las UARTs 0 y 4
 {
+
+	size_t receivedBytes;
+
 	CLOCK_EnableClock(kCLOCK_PortB);			/* Habilitar reloj del puerto B */
 	PORT_SetPinMux(PORTB, 16, kPORT_MuxAlt3);
 	PORT_SetPinMux(PORTB, 17, kPORT_MuxAlt3);
@@ -86,6 +102,8 @@ void uart_Init() 	// Función para inicializar(configurar) las UARTs 0 y 4
 	UART_Init(UART4, &config_uart4, CLOCK_GetFreq(UART4_CLK_SRC));  // Inicialización de los parámetros de UART4
 
 	UART_TransferCreateHandle(UART0, &g_uartHandle, uart_callback, NULL);
+	UART_TransferCreateHandle(UART4, &g_uartHandle, uart_callback, NULL);
+
 	NVIC_SetPriority(UART0_RX_TX_IRQn,5);
 	NVIC_SetPriority(UART4_RX_TX_IRQn,5);
 
@@ -95,14 +113,14 @@ void uart_Init() 	// Función para inicializar(configurar) las UARTs 0 y 4
 		receiveXfer.dataSize = 1;
 
 
-		UART_TransferReceiveNonBlocking(UART0, &g_uartHandle, &receiveXfer, &receivedB);
-		xEventGroupWaitBits(g_uart_evet, RX_FINISHED, pdTRUE, pdTRUE, port_MAXDELAY);
+		UART_TransferReceiveNonBlocking(UART0, &g_uartHandle, &receiveXfer, &receivedBytes);
+		xEventGroupWaitBits(g_uart_event, RX_FINISHED, pdTRUE, pdTRUE, portMAX_DELAY);
 		g_txBuffer = g_rxBuffer - 'a' + 'A';
 		UART_TransferSendNonBlocking(UART0, &g_uartHandle, &sendXfer);
 
 }
 
-void PC_Terminal_Task(void *pvParameters)
+void PC_Terminal_Task(void *arg)
 {
 
     /* Enviar el menú de opciones a escoger */
