@@ -11,14 +11,14 @@
 
 uint8_t MEM24LC256_write_Data(uint16_t address, uint16_t data_size, uint8_t* buffer)
 {
-    I2C_write_Data(MEM24LC256_GENERAL_ADDRESS,address,data_size, buffer);
+    I2C_write_Data(MEM24LC256_GENERAL_ADDRESS, 2, address, data_size, buffer);
     return 0;
 }
 
 uint8_t* MEM24LC256_Read_Data(uint16_t address, uint16_t data_size, uint8_t* buffer)
 {
 
-   return I2C_read_Data(MEM24LC256_GENERAL_ADDRESS,address,data_size, buffer);
+   return I2C_read_Data(MEM24LC256_GENERAL_ADDRESS, 2, address, data_size, buffer);
 }
 
 uint16_t String_size(uint8_t* data)
