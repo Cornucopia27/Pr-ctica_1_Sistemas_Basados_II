@@ -8,6 +8,7 @@
 
 SemaphoreHandle_t pcf_semaphore;
 SemaphoreHandle_t pcf_mutex;
+QueueHandle_t pcf_queue;
 
 void PCF8583_setSeconds(uint8_t* buffer)
 {
@@ -69,15 +70,54 @@ uint8_t* PCF8583_getYears(uint8_t* buffer)
     return I2C_read_Data(PCF8563_GENERAL_ADDRESS, 1, YEARS_ADDRESS, 1, buffer);
 }
 
-//PCF_task()
-//{
-//	for(;;)
-//	{
-//		xSemaphoreTake(pcf_semaphore, portMAX_DELAY);
-//		xSemaphoreTake(pcf_mutex, portMAX_DELAY);
-//
-//	}
-//}
+QueueHandle_t* Get_PcfQueue()
+{
+	return &pcf_queue;
+}
+
+SemaphoreHandle_t* Get_PcfMutex()
+{
+	return &pcf_mutex;
+}
+
+SemaphoreHandle_t* Get_PcfSemaphore()
+{
+	return &pcf_semaphore;
+}
+
+void PCF_task()
+{
+	static uint8_t buffer[3];
+	static Time *time_ptr;
+	for(;;)
+	{
+		xSemaphoreTake(pcf_semaphore, portMAX_DELAY);
+		xSemaphoreTake(pcf_mutex, portMAX_DELAY);
+		PCF8583_getHours(&buffer[0]);
+		PCF8583_getMinutes(&buffer[1]);
+		PCF8583_getSeconds(&buffer[2]);
+		time_ptr->Hours = buffer[0];
+		time_ptr->Minutes = buffer[1];
+		time_ptr->Seconds = buffer[2];
+		xSemaphoreGive(pcf_mutex);
+		xQueueSend(pcf_queue, &time_ptr, portMAX_DELAY);
+	}
+}
+
+Time PCF_request()
+{
+	Time *time_ptr;
+	xSemaphoreGive(pcf_semaphore);
+	xQueueReceive(pcf_queue, &time_ptr, portMAX_DELAY);
+	return *time_ptr;
+}
+
+void Create_PcfHandles()
+{
+    pcf_semaphore = xSemaphoreCreateBinary();
+    pcf_mutex = xSemaphoreCreateMutex();
+    pcf_queue = xQueueCreate(1, sizeof(Time*));
+}
 //Full_Date current_Date = {{0,0,0},{0,0,0}};
 
 //void updateSystemTimeDate(){//update the structure values

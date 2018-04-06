@@ -51,6 +51,16 @@
  * @brief   Application entry point.
  */
 
+Time Current_Time = {0,0,0};
+
+void task_lcd()
+{
+	Current_Time = PCF_request();
+	printf("horas: %c\n", Current_Time.Hours);
+	printf("minutos: %c\n", Current_Time.Minutes);
+	printf("segundos: %c\n", Current_Time.Seconds);
+}
+
 int main(void) {
   	/* Init board hardware. */
     BOARD_InitBootPins();
@@ -58,22 +68,29 @@ int main(void) {
     BOARD_InitBootPeripherals();
   	/* Init FSL debug console. */
     BOARD_InitDebugConsole();
+    uint8_t mins = 0x04;
+    uint8_t secs = 0x20;
+    I2C_common_init();
+    PCF8583_setMinutes(&mins);
+    PCF8583_setSeconds(&secs);
+    Create_PcfHandles();
+    xTaskCreate(PCF_task, "taskPcf", configMINIMAL_STACK_SIZE, NULL, configMAX_PRIORITIES-1, NULL);
+    xTaskCreate(task_lcd, "taskLcd", configMINIMAL_STACK_SIZE, NULL, configMAX_PRIORITIES-1, NULL);
+    vTaskStartScheduler();
 //    uint8_t string1[] = "soy string1";
 //    uint8_t* string1_mem = &string1[0];
 //    uint8_t save_string1[11];
 //    uint8_t* string2_mem = &save_string1[0];
-    uint8_t hr = 0x05;
-    uint8_t* hr_mem = &hr;
-    uint8_t save_hr;
-    uint8_t* hr_mem2 = &save_hr;
+//    uint8_t* hr_mem = &hr;
+//    uint8_t save_hr;
+//    uint8_t* hr_mem2 = &save_hr;
 //    String_size(string1);
-    I2C_common_init();
 //    MEM24LC256_write_Data(0x0010, String_size(string1_mem), string1_mem);
 //    MEM24LC256_Read_Data(0x0010, String_size(string1_mem), string2_mem);
-    PCF8583_setSeconds(hr_mem);
-    PCF8583_getSeconds(hr_mem2);
-    PCF8583_setHours(hr_mem);
-    PCF8583_getHours(hr_mem2);
+//    PCF8583_setSeconds(hr_mem);
+//    PCF8583_getSeconds(hr_mem2);
+//    PCF8583_setHours(hr_mem);
+//    PCF8583_getHours(hr_mem2);
 //    uint8_t pepe = 0x12;
 
     return 0 ;
