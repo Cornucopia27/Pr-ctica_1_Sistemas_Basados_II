@@ -88,7 +88,7 @@ SemaphoreHandle_t* Get_PcfSemaphore()
 void PCF_task()
 {
 	static uint8_t buffer[3];
-	static Time *time_ptr;
+	static Time time_passer;
 	for(;;)
 	{
 		xSemaphoreTake(pcf_semaphore, portMAX_DELAY);
@@ -96,20 +96,20 @@ void PCF_task()
 		PCF8583_getHours(&buffer[0]);
 		PCF8583_getMinutes(&buffer[1]);
 		PCF8583_getSeconds(&buffer[2]);
-		time_ptr->Hours = buffer[0];
-		time_ptr->Minutes = buffer[1];
-		time_ptr->Seconds = buffer[2];
+		time_passer.Hours = buffer[0];
+		time_passer.Minutes = buffer[1];
+		time_passer.Seconds = buffer[2];
 		xSemaphoreGive(pcf_mutex);
-		xQueueSend(pcf_queue, &time_ptr, portMAX_DELAY);
+		xQueueSend(pcf_queue, &time_passer, portMAX_DELAY);
 	}
 }
 
 Time PCF_request()
 {
-	Time *time_ptr;
+	Time time_passer;
 	xSemaphoreGive(pcf_semaphore);
-	xQueueReceive(pcf_queue, &time_ptr, portMAX_DELAY);
-	return *time_ptr;
+	xQueueReceive(pcf_queue, &time_passer, portMAX_DELAY);
+	return time_passer;
 }
 
 void Create_PcfHandles()

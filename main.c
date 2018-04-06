@@ -55,10 +55,14 @@ Time Current_Time = {0,0,0};
 
 void task_lcd()
 {
+	for(;;)
+	{
 	Current_Time = PCF_request();
 	printf("horas: %c\n", Current_Time.Hours);
 	printf("minutos: %c\n", Current_Time.Minutes);
 	printf("segundos: %c\n", Current_Time.Seconds);
+//	PRINTF("\rhoras: %c\n", Current_Time.Hours);
+	}
 }
 
 int main(void) {
@@ -75,23 +79,8 @@ int main(void) {
     PCF8583_setSeconds(&secs);
     Create_PcfHandles();
     xTaskCreate(PCF_task, "taskPcf", configMINIMAL_STACK_SIZE, NULL, configMAX_PRIORITIES-1, NULL);
-    xTaskCreate(task_lcd, "taskLcd", configMINIMAL_STACK_SIZE, NULL, configMAX_PRIORITIES-1, NULL);
+    xTaskCreate(task_lcd, "taskLcd", configMINIMAL_STACK_SIZE, NULL, configMAX_PRIORITIES-2, NULL);
     vTaskStartScheduler();
-//    uint8_t string1[] = "soy string1";
-//    uint8_t* string1_mem = &string1[0];
-//    uint8_t save_string1[11];
-//    uint8_t* string2_mem = &save_string1[0];
-//    uint8_t* hr_mem = &hr;
-//    uint8_t save_hr;
-//    uint8_t* hr_mem2 = &save_hr;
-//    String_size(string1);
-//    MEM24LC256_write_Data(0x0010, String_size(string1_mem), string1_mem);
-//    MEM24LC256_Read_Data(0x0010, String_size(string1_mem), string2_mem);
-//    PCF8583_setSeconds(hr_mem);
-//    PCF8583_getSeconds(hr_mem2);
-//    PCF8583_setHours(hr_mem);
-//    PCF8583_getHours(hr_mem2);
-//    uint8_t pepe = 0x12;
 
     return 0 ;
 }
