@@ -5,7 +5,6 @@
  *      Authors: Adrian Ramos Perez and Alex Avila Chavira
  */
 
-#include "UART.h"
 #include <stdio.h>
 #include "board.h"
 #include "peripherals.h"
@@ -21,41 +20,63 @@
 #include "task.h"
 #include "event_groups.h"
 #include "portmacro.h"
+#include "UART.h"
 
-#define TX_FINISHED		1>>0
-#define RX_FINISHED		1<<1
-#define BUFFER_LENGHT	8
+#define TX_FINISHED			1>>0
+#define RX_FINISHED			1<<1
+#define KEY_BUFFER_LENGTH 	1
+#define BUFFER_LENGHT		8
 
-/*******************************************************************************
- * Prototypes
- ******************************************************************************/
+/******************************************************************************************************************************
+ * PROTOTIPOS DE FUNCIÓN
+ ******************************************************************************************************************************/
 
 /* UART user callback */
 void UART_UserCallback(UART_Type *base, uart_handle_t *handle, status_t status, void *userData);
 
-void UART_Send(UART_Type *base, uint8_t *data);
+void UART_Send(UART_Type *base, uint8_t *data, size_t length, uart_handle_t *uart_handle);
 
-EventGroupHandle_t g_uart_event;
+void UART_Receive(UART_Type *base, uint8_t *data, size_t length, uart_handle_t *uart_handle);
 
-/*** VARIABLES *********************************************************************/
+void reprint();
+
+/********************************************************************************************************************************
+* VARIABLES
+*******************************************************************************************************************************/
+//EventGroupHandle_t g_uart_event;
+typedef enum {MAIN_MENU,READ_MEM,WRITE_MEM,SET_HOUR,SET_DATE,HOUR_FORMAT,READ_HOUR,READ_DATE,TERMINAL2,LCD_ECHO} state;
 uint8_t erase[] = "\033[2J";
 uint8_t background[] = "\033[41m";
-uint8_t sendData[] = " SISTEMA DE COMUNICACION CLIENTE-SERVIDOR\r\n\n"
+uint8_t mainMenu[] = " SISTEMA DE COMUNICACION CLIENTE-SERVIDOR\r\n\n"
 " 1) Leer Memoria I2C\r\n 2) Escribir Memoria I2C\r\n 3) Establecer Hora \r\n 4) Establecer Fecha\r\n 5) Formato de hora\r\n"
 " 6) Leer Hora\r\n 7)Leer Fecha\r\n 8) Comunicacion con terminal\r\n 9) Eco en LCD\r\n";
+uint8_t sendData[] = "PC TASK EN EJECUCION\r\n";
+uint8_t enter[] = "enter presionado";
+uint8_t escape[] = "escape presionado";
+
+uint8_t read_mem[] = "\r\nLEER MEMORIA I2C\r\n\r\n Direccion de lectura: ";
+uint8_t write_mem[] = "\r\nESCRIBIR MEMORIA I2C\r\n\r\n ";
+uint8_t set_hour[] = "\r\nESTABLECER HORA\r\n\r\n ";
+uint8_t set_date[] = "\r\nESTABLECER FECHA\r\n\r\n ";
+uint8_t hour_format[] = "\r\nFORMATO DE HORA\r\n\r\n";
+uint8_t read_hour[] = "\r\nREAD HOUR\r\n\r\n";
+uint8_t read_date[] = "\r\nREAD DATE\r\n\r\n";
+uint8_t term2[] = "\r\nCOMUNICACIÓN CON TERMINAL 2\r\n\r\n";
+uint8_t lcd_echo[] = "\r\nECO EN LCD\r\n\r\n";
 
 uart_handle_t g_uartHandle;
 uart_handle_t g_uartHandle4;
 
-uart_transfer_t sendXfer;
-uart_transfer_t receiveXfer;
-
 volatile bool txOnGoing = false;
 volatile bool rxOnGoing = false;
+volatile bool Key_Flag = false;
+volatile bool print_pressedKey_Flag = false;
 uint8_t receiveData[32];
-uint8_t g_txBuffer[BUFFER_LENGHT];
-uint8_t g_rxBuffer[BUFFER_LENGHT];
+uint8_t g_txBuffer[KEY_BUFFER_LENGTH];
+uint8_t g_rxBuffer[KEY_BUFFER_LENGTH];
 
+extern void UART0_DriverIRQHandler(void);
+extern void UART4_DriverIRQHandler(void);
 
 /* ESTRUCTURA DE CONFIGURACIÓN PARA LA UART 0*/
 uart_config_t config_uart0 = {
@@ -81,36 +102,65 @@ uart_config_t config_uart4 =
 void UART_UserCallback(UART_Type *base, uart_handle_t *handle, status_t status, void *userData)
 {
 	userData = userData;
-	BaseType_t xHigherPriorityTaskWoken;
+	//BaseType_t xHigherPriorityTaskWoken;
 	if (kStatus_UART_TxIdle == status)
 	{
-		xEventGroupSetBitsFromISR(g_uart_event, TX_FINISHED, &xHigherPriorityTaskWoken);
 		txOnGoing = false;
+		//xEventGroupSetBitsFromISR(g_uart_event, TX_FINISHED, &xHigherPriorityTaskWoken);
+
 	}
 	if (kStatus_UART_RxIdle == status)
 	{
-		xEventGroupSetBitsFromISR(g_uart_event, RX_FINISHED, &xHigherPriorityTaskWoken);
 		rxOnGoing = false;
+		print_pressedKey_Flag = true;
+		//xEventGroupSetBitsFromISR(g_uart_event, RX_FINISHED, &xHigherPriorityTaskWoken);
+
 	}
-	portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+	//portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-void UART_Send(UART_Type *base, uint8_t *data) /* Con esta función podremos enviar más cómodamente */
+void UART_Send(UART_Type *base, uint8_t *data, size_t length, uart_handle_t *uart_handle) /* Con esta función podremos enviar más cómodamente */
 {
+	uart_transfer_t sendXfer;
 	sendXfer.data = data;
-	sendXfer.dataSize = 200;
+	sendXfer.dataSize = length;
 	txOnGoing = true;
-	UART_TransferSendNonBlocking(base, &g_uartHandle, &sendXfer);
+	UART_TransferSendNonBlocking(base, uart_handle, &sendXfer);
+
 	while (txOnGoing)
 	{
 	}
 }
 
-void uart_Init(void *arg) 	// Función para inicializar(configurar) las UARTs 0 y 4
+void UART_Receive(UART_Type *base, uint8_t *recv_buffer, size_t length, uart_handle_t *uart_handle)
 {
+	uart_transfer_t receiveXfer;
+	receiveXfer.data = recv_buffer;
+	receiveXfer.dataSize = length;
+	rxOnGoing = true;
+	UART_TransferReceiveNonBlocking(base, uart_handle, &receiveXfer, NULL);
+}
+
+
+void uart_Init() 	// Función para inicializar(configurar) las UARTs 0 y 4
+{
+	//g_uart_event = xEventGroupCreate();
+
 	CLOCK_EnableClock(kCLOCK_PortB);			/* Habilitar reloj del puerto B */
 	PORT_SetPinMux(PORTB, 16, kPORT_MuxAlt3);
 	PORT_SetPinMux(PORTB, 17, kPORT_MuxAlt3);
+	CLOCK_EnableClock(kCLOCK_PortC);			/* Habilitar reloj del puerto C */
+	PORT_SetPinMux(PORTC, 14, kPORT_MuxAlt3);
+	PORT_SetPinMux(PORTC, 15, kPORT_MuxAlt3);
+
+	UART_GetDefaultConfig(&config_uart0);
+	config_uart0.baudRate_Bps = 9600;
+	config_uart0.enableTx = true;
+	config_uart0.enableRx = true;
+	UART_GetDefaultConfig(&config_uart4);
+	config_uart4.baudRate_Bps = 9600;
+	config_uart4.enableTx = true;
+	config_uart4.enableRx = true;
 
 	UART_Init(UART0, &config_uart0, CLOCK_GetFreq(UART0_CLK_SRC));	// Inicialización de los parámetros de UART0
 	UART_Init(UART4, &config_uart4, CLOCK_GetFreq(UART4_CLK_SRC));  // Inicialización de los parámetros de UART4
@@ -121,49 +171,234 @@ void uart_Init(void *arg) 	// Función para inicializar(configurar) las UARTs 0 
 	NVIC_SetPriority(UART0_RX_TX_IRQn,5);
 	NVIC_SetPriority(UART4_RX_TX_IRQn,5);
 
-		//sendXfer.data = sendData;
-		//sendXfer.dataSize = sizeof(sendData) - 1;
-		receiveXfer.data = g_rxBuffer;
-		receiveXfer.dataSize = BUFFER_LENGHT;
-
 		//UART_TransferReceiveNonBlocking(UART0, &g_uartHandle, &receiveXfer, &receivedBytes);
 		//xEventGroupWaitBits(g_uart_event, RX_FINISHED, pdTRUE, pdTRUE, portMAX_DELAY);
 		//g_txBuffer = g_rxBuffer - 'a' + 'A';
 
-		/*txOnGoing = true;
-		UART_TransferSendNonBlocking(UART0, &g_uartHandle, &sendXfer);
-		while (txOnGoing)
-		{
-		}*/
-		UART_Send(UART0, sendData);
+		//UART_Send(UART4, erase, sizeof(erase) - 1, &g_uartHandle4);
+		UART_Send(UART4, mainMenu, sizeof(mainMenu) - 1,  &g_uartHandle4);
+		/* LIMPIAR PANTALLA */
+		UART_Send(UART0, erase, sizeof(erase) - 1, &g_uartHandle);
+		/* BACKGROUND ROJO */
+		UART_Send(UART0, background, sizeof(background) - 1, &g_uartHandle);
+		UART_Send(UART4, background, sizeof(background) - 1, &g_uartHandle4);
+		/* ENVÍA MENÚ PRINCIPAL*/
+		UART_Send(UART0, mainMenu, sizeof(mainMenu) - 1, &g_uartHandle);
+
+
 
 }
 
+state changeState(uint8_t pressed_key)
+{
+	state estado = MAIN_MENU;
+	if( KEY_ESC == pressed_key)
+		estado = MAIN_MENU;
+
+	if( KEY_1 == pressed_key)
+			estado = READ_MEM;
+	if( KEY_2 == pressed_key)
+			estado = WRITE_MEM;
+	if( KEY_3 == pressed_key)
+			estado = SET_HOUR;
+	if( KEY_4 == pressed_key)
+			estado = SET_DATE;
+	if( KEY_5 == pressed_key)
+			estado = HOUR_FORMAT;
+	if( KEY_6 == pressed_key)
+			estado = READ_HOUR;
+	if( KEY_7 == pressed_key)
+			estado = READ_DATE;
+	if( KEY_8 == pressed_key)
+			estado = TERMINAL2;
+	if( KEY_9 == pressed_key)
+			estado = LCD_ECHO;
+	return estado;
+}
+
+void printPressedKey()
+{
+	if( true == print_pressedKey_Flag)						/* Si se ha  presionado tecla nueva */
+	{
+		UART_Send(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);	/* Se envía esa misma tecla a pantalla*/
+		UART_Send(UART4, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle4);	/* Se envía esa misma tecla a pantalla*/
+		print_pressedKey_Flag = false;						/* Se pone la bandera en falso */
+	}
+}
+
+void printOptionMenu(uint8_t * data, size_t size)
+{
+	if( true == Key_Flag )
+	{
+		UART_Send(UART0, erase, sizeof(erase) - 1, &g_uartHandle);
+		UART_Send(UART0, data, size, &g_uartHandle);
+		UART_Send(UART4, data, size, &g_uartHandle4);
+		Key_Flag = false;
+		print_pressedKey_Flag = false;
+	}
+}
 void PC_Terminal_Task(void *arg)
 {
-	sendXfer.data = sendData;
-	sendXfer.dataSize = sizeof(sendData)/sizeof(sendData[0]);
+	UART_Send(UART0, sendData, sizeof(sendData) - 1, &g_uartHandle); //MENSAJE PARA IDENTIFICAR LA TAREA EN EJECUCIÓN
 
-	txOnGoing = true;
-    UART_TransferSendNonBlocking(UART0, &g_uartHandle, &sendXfer);
+	state State = MAIN_MENU;
+	uint8_t pressed_key;
+	*g_rxBuffer = 0;			/* Limpiar búfer */
 
-    /* Send data */
     for(;;)
     {
-        /* send back the received data */
-    	//UART_RTOS_Receive(&handle, recv_buffer, sizeof(recv_buffer), &n);
-    	receiveXfer.data = g_txBuffer;
-    	receiveXfer.dataSize = BUFFER_LENGHT;
-    	txOnGoing = true;
-    	UART_TransferReceiveNonBlocking(UART0, &g_uartHandle, &receiveXfer, NULL);
 
-        //UART_RTOS_Send(&handle, (uint8_t *)recv_buffer, n);
-    	sendXfer.data = g_rxBuffer;	/* Aquí se llena el búfer de salida con lo que entró */
-    	sendXfer.dataSize = BUFFER_LENGHT;
-    	txOnGoing = true;
-        UART_TransferSendNonBlocking(UART0, &g_uartHandle, &sendXfer);
+    	switch(State)
+    	{
+			case MAIN_MENU:
+				printOptionMenu(mainMenu, sizeof(mainMenu)-1);
+				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
+				pressed_key = *g_rxBuffer;
+				State = changeState(pressed_key);
+				if( State != MAIN_MENU)	/* Si se va a cambiar de estado se habilita impresión una vez de otros menús */
+					Key_Flag = true;
+				break;
 
-	}
+			case READ_MEM:
+				printOptionMenu(read_mem, sizeof(read_mem)-1);
+				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
+				pressed_key = *g_rxBuffer;
+				if(KEY_ESC == pressed_key)
+				{
+					State = MAIN_MENU;
+					Key_Flag = true;
+				}
+				else
+				{
+					printPressedKey();
+				}
+				break;
 
-    vTaskDelay(100);
-}
+			case WRITE_MEM:
+				printOptionMenu(write_mem, sizeof(write_mem)-1);
+				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
+				pressed_key = *g_rxBuffer;
+				if(KEY_ESC == pressed_key)
+				{
+					State = MAIN_MENU;
+					Key_Flag = true;
+				}
+				else
+				{
+					printPressedKey();
+				}
+				break;
+
+			case SET_HOUR:
+				printOptionMenu(set_hour, sizeof(set_hour)-1);
+				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
+				pressed_key = *g_rxBuffer;
+				if(KEY_ESC == pressed_key)
+				{
+					State = MAIN_MENU;
+					Key_Flag = true;
+				}
+				else
+				{
+					printPressedKey();
+				}
+				break;
+
+			case SET_DATE:
+				printOptionMenu(set_date, sizeof(set_date)-1);
+				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
+				pressed_key = *g_rxBuffer;
+				if(KEY_ESC == pressed_key)
+				{
+					State = MAIN_MENU;
+					Key_Flag = true;
+				}
+				else
+				{
+					printPressedKey();
+				}
+				break;
+
+			case HOUR_FORMAT:	/* FORMATO DE HORA */
+				printOptionMenu(hour_format, sizeof(hour_format)-1);
+				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
+				pressed_key = *g_rxBuffer;
+				if(KEY_ESC == pressed_key)
+				{
+					State = MAIN_MENU;
+					Key_Flag = true;
+				}
+				else
+				{
+					printPressedKey();
+				}
+				break;
+
+			case READ_HOUR:	/* LEER HORA*/
+				printOptionMenu(read_hour, sizeof(read_hour)-1);
+				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
+				pressed_key = *g_rxBuffer;
+				if(KEY_ESC == pressed_key)
+				{
+					State = MAIN_MENU;
+					Key_Flag = true;
+				}
+				else
+				{
+					printPressedKey();
+				}
+				break;
+
+			case READ_DATE:	/* LEER FECHA */
+				printOptionMenu(read_date, sizeof(read_date)-1);
+				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
+				pressed_key = *g_rxBuffer;
+				if(KEY_ESC == pressed_key)
+				{
+					State = MAIN_MENU;
+					Key_Flag = true;
+				}
+				else
+				{
+					printPressedKey();
+				}
+				break;
+
+			case TERMINAL2:
+				printOptionMenu(term2, sizeof(term2)-1);
+				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
+				pressed_key = *g_rxBuffer;
+				if(KEY_ESC == pressed_key)
+				{
+					State = MAIN_MENU;
+					Key_Flag = true;
+				}
+				else
+				{
+					printPressedKey();
+				}
+				break;
+
+			case LCD_ECHO:
+				printOptionMenu(lcd_echo, sizeof(lcd_echo)-1);
+				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
+				pressed_key = *g_rxBuffer;
+				if(KEY_ESC == pressed_key)
+				{
+					State = MAIN_MENU;
+					Key_Flag = true;
+				}
+				else
+				{
+					printPressedKey();
+				}
+				break;
+
+			default:
+				State = MAIN_MENU;
+				break;
+    	}// END CASE
+	}//END FOR
+
+    vTaskDelay(10);
+}//END TASK
