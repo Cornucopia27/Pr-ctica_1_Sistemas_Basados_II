@@ -55,7 +55,5 @@ void updateSystemTimeDate();
 Time PCF_request();
 void PCF_task();
 void Create_PcfHandles();
-QueueHandle_t* Get_PcfQueue();
-SemaphoreHandle_t* Get_PcfMutex();
-SemaphoreHandle_t* Get_PcfSemaphore();
+void Set_Format(bool val);
 #endif /* PCF8583_H_ */

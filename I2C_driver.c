@@ -15,9 +15,7 @@
 
 bool g_MasterCompletionFlag = false;
 i2c_master_transfer_t masterXfer;
-i2c_master_handle_t g_i2cHandle; //handle created for the callback
-//SemaphoreHandle_t i2c_sempahore;
-//EventGroupHandle_t i2c_event;
+i2c_master_handle_t g_i2cHandle; //handle created for the callback.
 
 static void i2c_master_callback( I2C_Type *base, i2c_master_handle_t *handle,
         status_t status, void * userData )

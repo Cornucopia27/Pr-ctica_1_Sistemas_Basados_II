@@ -9,6 +9,7 @@
 SemaphoreHandle_t pcf_semaphore;
 SemaphoreHandle_t pcf_mutex;
 QueueHandle_t pcf_queue;
+static bool format;
 
 void PCF8583_setSeconds(uint8_t* buffer)
 {
@@ -70,21 +71,6 @@ uint8_t* PCF8583_getYears(uint8_t* buffer)
     return I2C_read_Data(PCF8563_GENERAL_ADDRESS, 1, YEARS_ADDRESS, 1, buffer);
 }
 
-QueueHandle_t* Get_PcfQueue()
-{
-	return &pcf_queue;
-}
-
-SemaphoreHandle_t* Get_PcfMutex()
-{
-	return &pcf_mutex;
-}
-
-SemaphoreHandle_t* Get_PcfSemaphore()
-{
-	return &pcf_semaphore;
-}
-
 void PCF_task()
 {
 	static uint8_t buffer[3];
@@ -118,14 +104,13 @@ void Create_PcfHandles()
     pcf_mutex = xSemaphoreCreateMutex();
     pcf_queue = xQueueCreate(1, sizeof(Time*));
 }
-//Full_Date current_Date = {{0,0,0},{0,0,0}};
 
-//void updateSystemTimeDate(){//update the structure values
-//	current_Date.currentTime.Seconds = (PCF8583_getSeconds());
-//	current_Date.currentTime.Minutes =	(PCF8583_getMinutes());
-//	current_Date.currentTime.Hours =	(PCF8583_getHours());
-//
-//	current_Date.currentDate.Years = (PCF8583_getYears());
-//	current_Date.currentDate.Months = (PCF8583_getMonths());
-//	current_Date.currentDate.Days = (PCF8583_getDays());
-//}
+void Set_Format(bool val)
+{
+	format = val;
+}
+
+bool Get_Format()
+{
+	return format;
+}
