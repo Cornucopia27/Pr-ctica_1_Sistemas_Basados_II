@@ -71,9 +71,12 @@ volatile bool txOnGoing = false;
 volatile bool rxOnGoing = false;
 volatile bool Key_Flag = false;
 volatile bool print_pressedKey_Flag = false;
+volatile bool ask_address = false;
+
 uint8_t receiveData[32];
 uint8_t g_txBuffer[KEY_BUFFER_LENGTH];
 uint8_t g_rxBuffer[KEY_BUFFER_LENGTH];
+uint8_t anotherbufer[4];
 
 extern void UART0_DriverIRQHandler(void);
 extern void UART4_DriverIRQHandler(void);
@@ -184,9 +187,6 @@ void uart_Init() 	// Función para inicializar(configurar) las UARTs 0 y 4
 		UART_Send(UART4, background, sizeof(background) - 1, &g_uartHandle4);
 		/* ENVÍA MENÚ PRINCIPAL*/
 		UART_Send(UART0, mainMenu, sizeof(mainMenu) - 1, &g_uartHandle);
-
-
-
 }
 
 state changeState(uint8_t pressed_key)
@@ -271,7 +271,15 @@ void PC_Terminal_Task(void *arg)
 				else
 				{
 					printPressedKey();
+					ask_address = true;
 				}
+				if(ask_address)
+				{
+
+
+
+				}
+
 				break;
 
 			case WRITE_MEM:
