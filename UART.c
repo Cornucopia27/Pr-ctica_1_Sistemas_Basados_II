@@ -26,6 +26,8 @@
 #define RX_FINISHED			1<<1
 #define KEY_BUFFER_LENGTH 	1
 #define BUFFER_LENGHT		8
+#define ADDRESS_BUFFER_LENGTH 4
+#define SIZE_BUFFER_LENGTH  2
 
 /******************************************************************************************************************************
  * PROTOTIPOS DE FUNCIÓN
@@ -51,10 +53,11 @@ uint8_t mainMenu[] = " SISTEMA DE COMUNICACION CLIENTE-SERVIDOR\r\n\n"
 " 1) Leer Memoria I2C\r\n 2) Escribir Memoria I2C\r\n 3) Establecer Hora \r\n 4) Establecer Fecha\r\n 5) Formato de hora\r\n"
 " 6) Leer Hora\r\n 7)Leer Fecha\r\n 8) Comunicacion con terminal\r\n 9) Eco en LCD\r\n";
 uint8_t sendData[] = "PC TASK EN EJECUCION\r\n";
-uint8_t enter[] = "enter presionado";
+uint8_t enter[] = "\r\n";
+uint8_t space[] = " ";
 uint8_t escape[] = "escape presionado";
 
-uint8_t read_mem[] = "\r\nLEER MEMORIA I2C\r\n\r\n Direccion de lectura: ";
+uint8_t read_mem[] = "\r\nLEER MEMORIA I2C\r\n\r\n Direccion de lectura: 0x";
 uint8_t write_mem[] = "\r\nESCRIBIR MEMORIA I2C\r\n\r\n ";
 uint8_t set_hour[] = "\r\nESTABLECER HORA\r\n\r\n ";
 uint8_t set_date[] = "\r\nESTABLECER FECHA\r\n\r\n ";
@@ -63,6 +66,10 @@ uint8_t read_hour[] = "\r\nREAD HOUR\r\n\r\n";
 uint8_t read_date[] = "\r\nREAD DATE\r\n\r\n";
 uint8_t term2[] = "\r\nCOMUNICACIÓN CON TERMINAL 2\r\n\r\n";
 uint8_t lcd_echo[] = "\r\nECO EN LCD\r\n\r\n";
+uint8_t contenido[] = "\r\nContenido: \r\n\r\n";
+uint8_t texto[] = "\r\nTexto a guardar: \r\n\r\n";
+uint8_t longitud[] = "\r\nLongitud en bytes: ";
+uint8_t presiona[] = "\r\nPresiona una tecla para continuar: \r\n\r\n";
 
 uart_handle_t g_uartHandle;
 uart_handle_t g_uartHandle4;
@@ -71,12 +78,22 @@ volatile bool txOnGoing = false;
 volatile bool rxOnGoing = false;
 volatile bool Key_Flag = false;
 volatile bool print_pressedKey_Flag = false;
+
 volatile bool ask_address = false;
+volatile bool ask_size = false;
+volatile bool send_size;
+volatile uint8_t show_Flag = false;
+
+volatile uint8_t number_of_times_pressed = 0;
+volatile uint8_t isBufferFull = false;
+
 
 uint8_t receiveData[32];
 uint8_t g_txBuffer[KEY_BUFFER_LENGTH];
 uint8_t g_rxBuffer[KEY_BUFFER_LENGTH];
 uint8_t anotherbufer[4];
+uint8_t addressbuffer[ADDRESS_BUFFER_LENGTH];
+uint8_t sizebuffer[SIZE_BUFFER_LENGTH];
 
 extern void UART0_DriverIRQHandler(void);
 extern void UART4_DriverIRQHandler(void);
@@ -116,6 +133,11 @@ void UART_UserCallback(UART_Type *base, uart_handle_t *handle, status_t status, 
 	{
 		rxOnGoing = false;
 		print_pressedKey_Flag = true;
+		number_of_times_pressed++;
+		if(4 == number_of_times_pressed )
+			isBufferFull = true;
+		if(number_of_times_pressed > 4)
+			number_of_times_pressed = 1;
 		//xEventGroupSetBitsFromISR(g_uart_event, RX_FINISHED, &xHigherPriorityTaskWoken);
 
 	}
@@ -226,6 +248,19 @@ void printPressedKey()
 	}
 }
 
+void printBufer(uint8_t * bufer, size_t size)
+{
+	if( true == print_pressedKey_Flag)						/* Si se ha  presionado tecla nueva */
+	{
+		UART_Send(UART0, space, sizeof(space)-1, &g_uartHandle);
+		UART_Send(UART0, bufer, size, &g_uartHandle);	/* Se envía esa misma tecla a pantalla*/
+		UART_Send(UART4, bufer, size, &g_uartHandle4);	/* Se envía esa misma tecla a pantalla*/
+
+		UART_Send(UART0, enter, sizeof(enter)-1, &g_uartHandle);
+		print_pressedKey_Flag = false;						/* Se pone la bandera en falso */
+	}
+}
+
 void printOptionMenu(uint8_t * data, size_t size)
 {
 	if( true == Key_Flag )
@@ -244,6 +279,8 @@ void PC_Terminal_Task(void *arg)
 	state State = MAIN_MENU;
 	uint8_t pressed_key;
 	*g_rxBuffer = 0;			/* Limpiar búfer */
+	*anotherbufer = 0;
+	uint8_t index = 0;
 
     for(;;)
     {
@@ -268,18 +305,51 @@ void PC_Terminal_Task(void *arg)
 					State = MAIN_MENU;
 					Key_Flag = true;
 				}
+				else if(KEY_ENTER == pressed_key)
+				{
+
+					if( true == ask_address ) // && (sizeof(addressbuffer) == 32) si está lleno el buffer
+					{
+						printBufer(addressbuffer, ADDRESS_BUFFER_LENGTH);
+						// ESCRIBIR POR I2C LA INDICACIÓN LEER MEMORIA EN LA DIRECCIÓN GUARDADA EN 'addressbuffer'
+						ask_address = false;
+						ask_size = true;
+					}
+					if( true == send_size)
+					{
+						printBufer(sizebuffer, SIZE_BUFFER_LENGTH);
+						// ESCRIBIR POR I2C EL TAMAÑO GUARDADO EN 'sizebuffer'
+						ask_size = false;
+						show_Flag = true;
+					}
+				}
 				else
 				{
 					printPressedKey();
 					ask_address = true;
+					if( ask_address == true)
+					{
+						addressbuffer[number_of_times_pressed - 1] = pressed_key;
+					}
+					if( ask_size == true)
+					{
+						sizebuffer[number_of_times_pressed - 1] = pressed_key;
+					}
 				}
-				if(ask_address)
+				if( ask_size == true)
 				{
-
-
-
+					printBufer(longitud, sizeof(longitud) - 1);
+					if(KEY_ENTER == pressed_key)
+						send_size = true;
 				}
 
+				if( show_Flag == true )
+				{
+					printBufer(contenido, sizeof(contenido) - 1);
+					//IMPRIMIR LO LEÍDO DE ESA DIRECCIÓN DE MEMORIA , USANDO UART_SEND CON EL BÚFER LEÍDO de I2C
+					printBufer(presiona, sizeof(presiona) - 1);
+					show_Flag = false;
+				}
 				break;
 
 			case WRITE_MEM:
