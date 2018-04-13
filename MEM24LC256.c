@@ -17,7 +17,6 @@ uint8_t MEM24LC256_write_Data(uint16_t address, uint16_t data_size, uint8_t* buf
 
 uint8_t* MEM24LC256_Read_Data(uint16_t address, uint16_t data_size, uint8_t* buffer)
 {
-
    return I2C_read_Data(MEM24LC256_GENERAL_ADDRESS, 2, address, data_size, buffer);
 }
 

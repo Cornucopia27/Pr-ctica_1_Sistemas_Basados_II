@@ -16,7 +16,6 @@
 #define DAYS_ADDRESS 0x05 // (HEX) address where days are.
 #define MONTHS_ADDRESS 0x07 // (HEX) address where months are.
 #define YEARS_ADDRESS 0x08 // (HEX) address where years are.
-#define PCF_STACK_SIZE                ((unsigned short)1000)
 
 /*! This data type represents the Time values*/
 typedef struct{
@@ -56,4 +55,6 @@ Time PCF_request();
 void PCF_task();
 void Create_PcfHandles();
 void Set_Format(bool val);
+uint8_t Number_hex_transform(uint8_t number);
+bool Get_Format();
 #endif /* PCF8583_H_ */

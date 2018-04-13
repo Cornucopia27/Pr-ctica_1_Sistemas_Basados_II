@@ -114,3 +114,14 @@ bool Get_Format()
 {
 	return format;
 }
+
+uint8_t Number_hex_transform(uint8_t number)
+{
+	uint8_t full_number = number;
+	uint8_t units_number = 0;
+	uint8_t tens_number = 0;
+	units_number = full_number%10;
+	tens_number = full_number/10;
+	full_number = (tens_number << 4) | (units_number);
+	return full_number;
+}
