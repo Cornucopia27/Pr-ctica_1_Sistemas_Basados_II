@@ -47,8 +47,10 @@ void reprint();
 *******************************************************************************************************************************/
 //EventGroupHandle_t g_uart_event;
 typedef enum {MAIN_MENU,READ_MEM,WRITE_MEM,SET_HOUR,SET_DATE,HOUR_FORMAT,READ_HOUR,READ_DATE,TERMINAL2,LCD_ECHO} state;
+typedef enum {ASK_ADDRESS, ASK_SIZE, DISPLAY} opcion;
+opcion Opcion = ASK_ADDRESS;
 uint8_t erase[] = "\033[2J";
-uint8_t background[] = "\033[41m";
+uint8_t background[] = "\033[42m";
 uint8_t mainMenu[] = " SISTEMA DE COMUNICACION CLIENTE-SERVIDOR\r\n\n"
 " 1) Leer Memoria I2C\r\n 2) Escribir Memoria I2C\r\n 3) Establecer Hora \r\n 4) Establecer Fecha\r\n 5) Formato de hora\r\n"
 " 6) Leer Hora\r\n 7)Leer Fecha\r\n 8) Comunicacion con terminal\r\n 9) Eco en LCD\r\n";
@@ -77,6 +79,7 @@ uart_handle_t g_uartHandle4;
 volatile bool txOnGoing = false;
 volatile bool rxOnGoing = false;
 volatile bool Key_Flag = false;
+volatile bool printOneTime_Flag = false;
 volatile bool print_pressedKey_Flag = false;
 
 volatile bool ask_address = false;
@@ -134,10 +137,10 @@ void UART_UserCallback(UART_Type *base, uart_handle_t *handle, status_t status, 
 		rxOnGoing = false;
 		print_pressedKey_Flag = true;
 		number_of_times_pressed++;
-		if(4 == number_of_times_pressed )
+		if(ADDRESS_BUFFER_LENGTH == number_of_times_pressed )
 			isBufferFull = true;
 		if(number_of_times_pressed > 4)
-			number_of_times_pressed = 1;
+			number_of_times_pressed = 0;
 		//xEventGroupSetBitsFromISR(g_uart_event, RX_FINISHED, &xHigherPriorityTaskWoken);
 
 	}
@@ -218,7 +221,10 @@ state changeState(uint8_t pressed_key)
 		estado = MAIN_MENU;
 
 	if( KEY_1 == pressed_key)
-			estado = READ_MEM;
+	{
+		estado = READ_MEM;
+		Opcion = ASK_ADDRESS;
+	}
 	if( KEY_2 == pressed_key)
 			estado = WRITE_MEM;
 	if( KEY_3 == pressed_key)
@@ -250,14 +256,13 @@ void printPressedKey()
 
 void printBufer(uint8_t * bufer, size_t size)
 {
-	if( true == print_pressedKey_Flag)						/* Si se ha  presionado tecla nueva */
+	if( true == printOneTime_Flag )						/* Si se ha  presionado tecla nueva */
 	{
 		UART_Send(UART0, space, sizeof(space)-1, &g_uartHandle);
 		UART_Send(UART0, bufer, size, &g_uartHandle);	/* Se envía esa misma tecla a pantalla*/
 		UART_Send(UART4, bufer, size, &g_uartHandle4);	/* Se envía esa misma tecla a pantalla*/
-
 		UART_Send(UART0, enter, sizeof(enter)-1, &g_uartHandle);
-		print_pressedKey_Flag = false;						/* Se pone la bandera en falso */
+		printOneTime_Flag = false;						/* Se pone la bandera en falso */
 	}
 }
 
@@ -275,7 +280,6 @@ void printOptionMenu(uint8_t * data, size_t size)
 void PC_Terminal_Task(void *arg)
 {
 	UART_Send(UART0, sendData, sizeof(sendData) - 1, &g_uartHandle); //MENSAJE PARA IDENTIFICAR LA TAREA EN EJECUCIÓN
-
 	state State = MAIN_MENU;
 	uint8_t pressed_key;
 	*g_rxBuffer = 0;			/* Limpiar búfer */
@@ -291,9 +295,13 @@ void PC_Terminal_Task(void *arg)
 				printOptionMenu(mainMenu, sizeof(mainMenu)-1);
 				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
 				pressed_key = *g_rxBuffer;
+				*g_rxBuffer = 0x0;	//LIMPIAR BÚFFER
 				State = changeState(pressed_key);
 				if( State != MAIN_MENU)	/* Si se va a cambiar de estado se habilita impresión una vez de otros menús */
-					Key_Flag = true;
+				{
+				Key_Flag = true;
+				printOneTime_Flag = true;
+				}
 				break;
 
 			case READ_MEM:
@@ -305,51 +313,64 @@ void PC_Terminal_Task(void *arg)
 					State = MAIN_MENU;
 					Key_Flag = true;
 				}
-				else if(KEY_ENTER == pressed_key)
-				{
-
-					if( true == ask_address ) // && (sizeof(addressbuffer) == 32) si está lleno el buffer
-					{
-						printBufer(addressbuffer, ADDRESS_BUFFER_LENGTH);
-						// ESCRIBIR POR I2C LA INDICACIÓN LEER MEMORIA EN LA DIRECCIÓN GUARDADA EN 'addressbuffer'
-						ask_address = false;
-						ask_size = true;
-					}
-					if( true == send_size)
-					{
-						printBufer(sizebuffer, SIZE_BUFFER_LENGTH);
-						// ESCRIBIR POR I2C EL TAMAÑO GUARDADO EN 'sizebuffer'
-						ask_size = false;
-						show_Flag = true;
-					}
-				}
-				else
+				//Si es una tecla diferente a enter la imprime y guarda en el búfer correspondiente
+				else if(KEY_ENTER != pressed_key)
 				{
 					printPressedKey();
-					ask_address = true;
-					if( ask_address == true)
+					if( Opcion == ASK_ADDRESS)
 					{
 						addressbuffer[number_of_times_pressed - 1] = pressed_key;
 					}
-					if( ask_size == true)
+					else if( Opcion == ASK_SIZE)
 					{
-						sizebuffer[number_of_times_pressed - 1] = pressed_key;
+						sizebuffer[index] = pressed_key;
+						index++;
+						if(index >= SIZE_BUFFER_LENGTH)
+							index = 0;
 					}
 				}
-				if( ask_size == true)
+
+				switch(Opcion)
 				{
+
+				case ASK_SIZE:
+
+					//UART_Send(UART0, longitud, sizeof(longitud) - 1, &g_uartHandle);
 					printBufer(longitud, sizeof(longitud) - 1);
 					if(KEY_ENTER == pressed_key)
-						send_size = true;
-				}
+					{
+						UART_Send(UART0, sizebuffer, SIZE_BUFFER_LENGTH, &g_uartHandle);
+						// ESCRIBIR POR I2C EL TAMAÑO GUARDADO EN 'sizebuffer'
+						*g_rxBuffer = 0x0;
+						Opcion = DISPLAY;
+						printOneTime_Flag = true;
+					}
+					break;
 
-				if( show_Flag == true )
-				{
-					printBufer(contenido, sizeof(contenido) - 1);
-					//IMPRIMIR LO LEÍDO DE ESA DIRECCIÓN DE MEMORIA , USANDO UART_SEND CON EL BÚFER LEÍDO de I2C
-					printBufer(presiona, sizeof(presiona) - 1);
-					show_Flag = false;
-				}
+				// ASK ADDRESS
+				case ASK_ADDRESS:
+						if(KEY_ENTER == pressed_key)
+						{
+							printBufer(addressbuffer, ADDRESS_BUFFER_LENGTH);
+							*g_rxBuffer = 0x0;
+							Opcion = ASK_SIZE;
+							printOneTime_Flag = true;
+						}
+					break;
+
+				case DISPLAY:
+						//UART_Send(UART0, contenido, sizeof(contenido) - 1, &g_uartHandle);
+						printBufer(contenido, sizeof(contenido) - 1);
+						printOneTime_Flag = true;
+						//IMPRIMIR LO LEÍDO DE ESA DIRECCIÓN DE MEMORIA , USANDO UART_SEND CON EL BÚFER LEÍDO de I2C
+						//UART_Send(UART0, presiona, sizeof(presiona) - 1, &g_uartHandle);
+						printBufer(presiona, sizeof(presiona) - 1);
+						if(KEY_ENTER == pressed_key)
+						{
+							State = MAIN_MENU;
+						}
+					break;
+				}// END SWITCH OPCIONES
 				break;
 
 			case WRITE_MEM:
