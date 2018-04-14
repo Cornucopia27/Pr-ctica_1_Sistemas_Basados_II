@@ -21,6 +21,7 @@
 #include "event_groups.h"
 #include "portmacro.h"
 #include "UART.h"
+#include"MEM24LC256.h"
 
 #define TX_FINISHED			1>>0
 #define RX_FINISHED			1<<1
@@ -47,7 +48,7 @@ void reprint();
 *******************************************************************************************************************************/
 //EventGroupHandle_t g_uart_event;
 typedef enum {MAIN_MENU,READ_MEM,WRITE_MEM,SET_HOUR,SET_DATE,HOUR_FORMAT,READ_HOUR,READ_DATE,TERMINAL2,LCD_ECHO} state;
-typedef enum {ASK_ADDRESS, ASK_SIZE, DISPLAY} opcion;
+typedef enum {ASK_ADDRESS, ASK_SIZE, DISPLAY, WAIT} opcion;
 opcion Opcion = ASK_ADDRESS;
 uint8_t erase[] = "\033[2J";
 uint8_t background[] = "\033[42m";
@@ -86,10 +87,13 @@ volatile bool ask_address = false;
 volatile bool ask_size = false;
 volatile bool send_size;
 volatile uint8_t show_Flag = false;
-
+volatile bool memFlag = false;
+volatile bool compFlag = false;
 volatile uint8_t number_of_times_pressed = 0;
+
 volatile uint8_t isBufferFull = false;
 
+uint8_t test[] = "Esto es una prueba";
 
 uint8_t receiveData[32];
 uint8_t g_txBuffer[KEY_BUFFER_LENGTH];
@@ -125,7 +129,7 @@ uart_config_t config_uart4 =
 void UART_UserCallback(UART_Type *base, uart_handle_t *handle, status_t status, void *userData)
 {
 	userData = userData;
-	//BaseType_t xHigherPriorityTaskWoken;
+//	BaseType_t xHigherPriorityTaskWoken;
 	if (kStatus_UART_TxIdle == status)
 	{
 		txOnGoing = false;
@@ -134,17 +138,15 @@ void UART_UserCallback(UART_Type *base, uart_handle_t *handle, status_t status, 
 	}
 	if (kStatus_UART_RxIdle == status)
 	{
+		if((*g_rxBuffer != KEY_ENTER) && (*g_rxBuffer != KEY_ESC) && (compFlag == true))
+				memFlag = true;
 		rxOnGoing = false;
 		print_pressedKey_Flag = true;
-		number_of_times_pressed++;
-		if(ADDRESS_BUFFER_LENGTH == number_of_times_pressed )
-			isBufferFull = true;
-		if(number_of_times_pressed > 4)
-			number_of_times_pressed = 0;
+
 		//xEventGroupSetBitsFromISR(g_uart_event, RX_FINISHED, &xHigherPriorityTaskWoken);
 
 	}
-	//portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+//	portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 void UART_Send(UART_Type *base, uint8_t *data, size_t length, uart_handle_t *uart_handle) /* Con esta función podremos enviar más cómodamente */
@@ -224,6 +226,7 @@ state changeState(uint8_t pressed_key)
 	{
 		estado = READ_MEM;
 		Opcion = ASK_ADDRESS;
+		compFlag = true;
 	}
 	if( KEY_2 == pressed_key)
 			estado = WRITE_MEM;
@@ -285,6 +288,7 @@ void PC_Terminal_Task(void *arg)
 	*g_rxBuffer = 0;			/* Limpiar búfer */
 	*anotherbufer = 0;
 	uint8_t index = 0;
+	uint8_t write_buffer[String_size(&test)];
 
     for(;;)
     {
@@ -295,7 +299,6 @@ void PC_Terminal_Task(void *arg)
 				printOptionMenu(mainMenu, sizeof(mainMenu)-1);
 				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
 				pressed_key = *g_rxBuffer;
-				*g_rxBuffer = 0x0;	//LIMPIAR BÚFFER
 				State = changeState(pressed_key);
 				if( State != MAIN_MENU)	/* Si se va a cambiar de estado se habilita impresión una vez de otros menús */
 				{
@@ -305,6 +308,7 @@ void PC_Terminal_Task(void *arg)
 				break;
 
 			case READ_MEM:
+
 				printOptionMenu(read_mem, sizeof(read_mem)-1);
 				UART_Receive(UART0, g_rxBuffer, KEY_BUFFER_LENGTH, &g_uartHandle);
 				pressed_key = *g_rxBuffer;
@@ -319,15 +323,36 @@ void PC_Terminal_Task(void *arg)
 					printPressedKey();
 					if( Opcion == ASK_ADDRESS)
 					{
-						addressbuffer[number_of_times_pressed - 1] = pressed_key;
+						addressbuffer[number_of_times_pressed] = *g_rxBuffer;
+						//memcpy(&addressbuffer[number_of_times_pressed], g_rxBuffer, KEY_BUFFER_LENGTH);
+						if( memFlag == true)
+						{
+								if(number_of_times_pressed > ADDRESS_BUFFER_LENGTH - 1)
+								{
+									number_of_times_pressed = 0;
+									//compFlag = false;
+								}
+								number_of_times_pressed++;
+							memFlag = false;
+
+						}
 					}
 					else if( Opcion == ASK_SIZE)
 					{
-						sizebuffer[index] = pressed_key;
-						index++;
-						if(index >= SIZE_BUFFER_LENGTH)
-							index = 0;
+						sizebuffer[index] = *g_rxBuffer;
+						if ( memFlag == true)
+						{
+							if(index > SIZE_BUFFER_LENGTH - 1)
+							{
+								index = 0;
+								compFlag = false;
+							}
+							index++;
+							memFlag = false;
+						}
+
 					}
+
 				}
 
 				switch(Opcion)
@@ -360,15 +385,24 @@ void PC_Terminal_Task(void *arg)
 
 				case DISPLAY:
 						//UART_Send(UART0, contenido, sizeof(contenido) - 1, &g_uartHandle);
+						MEM24LC256_Read_Data(0x2870, String_size(&test), &write_buffer[0]);
 						printBufer(contenido, sizeof(contenido) - 1);
 						printOneTime_Flag = true;
+						printBufer(write_buffer, String_size(&write_buffer));
+						printOneTime_Flag = true;
+						*g_rxBuffer = 0x0;
+						pressed_key = 0;
 						//IMPRIMIR LO LEÍDO DE ESA DIRECCIÓN DE MEMORIA , USANDO UART_SEND CON EL BÚFER LEÍDO de I2C
 						//UART_Send(UART0, presiona, sizeof(presiona) - 1, &g_uartHandle);
-						printBufer(presiona, sizeof(presiona) - 1);
-						if(KEY_ENTER == pressed_key)
-						{
-							State = MAIN_MENU;
-						}
+						Opcion = WAIT;
+						break;
+				case WAIT:
+					printBufer(presiona, sizeof(presiona) - 1);
+					if(KEY_ENTER == pressed_key)
+					{
+						State = MAIN_MENU;
+						Key_Flag = true;
+					}
 					break;
 				}// END SWITCH OPCIONES
 				break;
@@ -497,7 +531,7 @@ void PC_Terminal_Task(void *arg)
 				State = MAIN_MENU;
 				break;
     	}// END CASE
+    	vTaskDelay(10);
 	}//END FOR
 
-    vTaskDelay(10);
 }//END TASK

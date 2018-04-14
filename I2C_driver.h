@@ -18,8 +18,13 @@
 #include "fsl_i2c.h"
 #include "fsl_port.h"
 #include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+#include "event_groups.h"
+#include "queue.h"
+#include "stdbool.h"
 
 void I2C_common_init();
-uint8_t I2C_write_Data(uint16_t slave_address, uint16_t address, uint16_t data_size, uint8_t* buffer);
-uint8_t I2C_read_Data(uint16_t slave_address, uint16_t address, uint16_t data_size, uint8_t* buffer);
+uint8_t I2C_write_Data(uint16_t slave_address, uint8_t subaddress_size, uint16_t address, uint16_t data_size, uint8_t* buffer);
+uint8_t I2C_read_Data(uint16_t slave_address, uint8_t subaddress_size, uint16_t address, uint16_t data_size, uint8_t* buffer);
 #endif /* I2C_DRIVER_H_ */
